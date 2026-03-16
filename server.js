@@ -1,4 +1,8 @@
 require('dotenv').config();
+
+const validateEnv = require('./config/validateEnv');
+validateEnv();
+
 const express = require('express');
 const mongoose = require('mongoose');
 const cors = require('cors');
@@ -6,11 +10,18 @@ const helmet = require('helmet');
 const rateLimit = require('express-rate-limit');
 const path = require('path');
 
+const { notFound, errorHandler } = require('./middleware/errorMiddleware');
+
 const app = express();
 
 // Configuración de seguridad
 app.use(helmet());
-app.use(cors());
+
+// CORS (configurable por variable de entorno)
+const corsOptions = process.env.CORS_ORIGIN
+  ? { origin: process.env.CORS_ORIGIN.split(',').map((s) => s.trim()) }
+  : undefined;
+app.use(cors(corsOptions));
 
 // Limitar peticiones
 const limiter = rateLimit({
@@ -24,18 +35,16 @@ app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
 // Conexión a MongoDB
-mongoose.connect(process.env.MONGODB_URI, {
-  useNewUrlParser: true,
-  useUnifiedTopology: true,
-});
-
-// Modelos
-const Product = require('./models/Product');
-const User = require('./models/User');
-const Tournament = require('./models/Tournament');
-const Order = require('./models/Order');
+mongoose
+  .connect(process.env.MONGODB_URI)
+  .then(() => console.log('MongoDB conectado'))
+  .catch((err) => {
+    console.error('Error conectando a MongoDB:', err.message);
+    process.exit(1);
+  });
 
 // Rutas
+app.use('/api/health', require('./routes/healthRoutes'));
 app.use('/api/products', require('./routes/productRoutes'));
 app.use('/api/users', require('./routes/userRoutes'));
 app.use('/api/tournaments', require('./routes/tournamentRoutes'));
@@ -46,20 +55,15 @@ app.use('/api/auth', require('./routes/authRoutes'));
 app.use(express.static(path.join(__dirname, 'assets')));
 
 // Manejo de errores
-app.use((err, req, res, next) => {
-  console.error(err.stack);
-  res.status(500).json({ message: 'Error interno del servidor' });
-});
+app.use(notFound);
+app.use(errorHandler);
 
 // Página principal
 app.get('/', (req, res) => {
   res.sendFile(path.join(__dirname, 'index.html'));
 });
 
-// Manejo de errores 404
-app.use('*', (req, res) => {
-  res.status(404).json({ message: 'Ruta no encontrada' });
-});
+// 404 handled by notFound middleware
 
 // Iniciar servidor
 const PORT = process.env.PORT || 3000;
